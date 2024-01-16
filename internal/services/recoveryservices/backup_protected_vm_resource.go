@@ -233,7 +233,7 @@ func resourceRecoveryServicesBackupProtectedVMRead(d *pluginsdk.ResourceData, me
 
 func resourceRecoveryServicesBackupProtectedVMDelete(d *pluginsdk.ResourceData, meta interface{}) error {
 	client := meta.(*clients.Client).RecoveryServices.ProtectedItemsClient
-	opResultClient := meta.(*clients.Client).RecoveryServices.BackupOperationResultsClient
+	opClient := meta.(*clients.Client).RecoveryServices.ProtectedItemOperationResultsClient
 	ctx, cancel := timeouts.ForDelete(meta.(*clients.Client).StopContext, d)
 	defer cancel()
 
@@ -244,19 +244,24 @@ func resourceRecoveryServicesBackupProtectedVMDelete(d *pluginsdk.ResourceData, 
 
 	log.Printf("[DEBUG] Deleting %s", id)
 
-	resp, err := client.Delete(ctx, *id)
+	updateInput := protecteditems.ProtectedItemResource{
+		Properties: &protecteditems.AzureIaaSComputeVMProtectedItem{
+			ProtectionState: pointer.To(protecteditems.ProtectionStateProtectionStopped),
+			PolicyId:        pointer.To(""),
+		},
+	}
+
+	resp, err := client.CreateOrUpdate(ctx, *id, updateInput)
 	if err != nil {
-		if !response.WasNotFound(resp.HttpResponse) {
-			return fmt.Errorf("issuing delete request for %s: %+v", id, err)
-		}
+		return fmt.Errorf("creating/updating %s: %+v", id, err)
 	}
 
 	operationId, err := parseBackupOperationId(resp.HttpResponse)
 	if err != nil {
-		return fmt.Errorf("deleting %s: %+v", id, err)
+		return fmt.Errorf("issuing creating/updating request for %s: %+v", id, err)
 	}
 
-	if err = resourceRecoveryServicesBackupProtectedVMWaitForDeletion(ctx, client, opResultClient, *id, operationId); err != nil {
+	if err = resourceRecoveryServicesBackupProtectedVMWaitForStateCreateUpdate(ctx, opClient, *id, operationId); err != nil {
 		return err
 	}
 
